@@ -17,6 +17,7 @@ Version 1.0 — intentional product foundation, not a throwaway demo.
 - **Journey history** — List, view, rename, and delete saved journeys. Data survives page refresh.
 - **Retrace My Steps** — Reverse the recorded coordinates and display the return path. Visually distinct dashed blue line.
 - **Deviation warning** — While retracing, warns if you drift too far from the recorded trail (accounts for GPS accuracy).
+- **Installable (PWA)** — Add to Home Screen on Android & iOS. App shell works offline; journey data stays local in IndexedDB.
 - **Mobile-first UI** — Clean light theme, deep navy text, blue accents, optimized for phone browsers.
 
 ---
@@ -42,6 +43,9 @@ No frameworks, no external map providers, no backend required for Version 1.
 ```
 pathback/
 ├── index.html              # App shell
+├── manifest.json           # PWA manifest
+├── sw.js                   # Service worker (offline shell)
+├── icons/                  # App icons (192, 512, Apple)
 ├── css/
 │   └── styles.css          # Mobile-first styles
 ├── js/
@@ -90,6 +94,19 @@ npx serve .
 4. Walk a short loop, stop & save, then open the journey and press **Retrace My Steps**.
 
 Desktop browsers can use the developer tools “Sensors” / “Geolocation” override to simulate movement.
+
+### Install as a downloadable / home-screen app (PWA)
+
+Once the app is served over **HTTPS** (or localhost):
+
+**Android (Chrome)**  
+- Open the site → menu (⋮) → **Install app** or **Add to Home screen**  
+- Or look for the install banner
+
+**iPhone / iPad (Safari)**  
+- Tap the Share button → **Add to Home Screen**
+
+The app then opens in standalone mode (no browser chrome) with its own icon. The service worker caches the app shell so it opens even offline; your recorded journeys remain in IndexedDB on the device.
 
 ---
 
