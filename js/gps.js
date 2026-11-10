@@ -1,61 +1,60 @@
 /**
- * PathBack — Browser Geolocation tracking wrapper.
+ * TrailTrace — centralized GPS tracking service
+ * Single watcher; broadcasts points to subscribers.
  */
 
-import { shouldAcceptPoint, isValidCoordinate } from './utils.js';
+import { shouldAcceptPoint } from './utils.js';
 
 export class GPSTracker {
   constructor() {
     this.watchId = null;
     this.points = [];
-    this.onPoint = null; // callback(point)
-    this.onError = null;
-    this.onAccuracy = null;
     this.isTracking = false;
     this.lastAccuracy = null;
+    this.lastPosition = null;
+    this._listeners = { point: [], error: [], accuracy: [], raw: [] };
   }
 
-  /**
-   * Check if geolocation is available.
-   */
   static isAvailable() {
     return 'geolocation' in navigator;
   }
 
-  /**
-   * Start watching position.
-   * @param {object} options
-   */
+  on(event, fn) {
+    if (this._listeners[event]) this._listeners[event].push(fn);
+    return () => {
+      this._listeners[event] = this._listeners[event].filter((f) => f !== fn);
+    };
+  }
+
+  _emit(event, ...args) {
+    (this._listeners[event] || []).forEach((fn) => {
+      try { fn(...args); } catch (e) { console.error(e); }
+    });
+  }
+
   start(options = {}) {
     if (!GPSTracker.isAvailable()) {
-      if (this.onError) this.onError(new Error('Geolocation is not supported by this browser.'));
+      this._emit('error', new Error('Geolocation is not supported by this browser.'));
       return false;
     }
-
     if (this.isTracking) return true;
 
     const geoOptions = {
       enableHighAccuracy: true,
-      maximumAge: 2000,
+      maximumAge: 1500,
       timeout: 15000,
       ...options,
     };
 
-    this.points = [];
     this.isTracking = true;
-
     this.watchId = navigator.geolocation.watchPosition(
-      (pos) => this._handlePosition(pos),
+      (pos) => this._handle(pos),
       (err) => this._handleError(err),
       geoOptions
     );
-
     return true;
   }
 
-  /**
-   * Stop watching.
-   */
   stop() {
     if (this.watchId != null) {
       navigator.geolocation.clearWatch(this.watchId);
@@ -64,10 +63,18 @@ export class GPSTracker {
     this.isTracking = false;
   }
 
-  /**
-   * Get a single current position (one-shot).
-   * @returns {Promise<{lat: number, lng: number, accuracy: number, timestamp: number}>}
-   */
+  clearPoints() {
+    this.points = [];
+  }
+
+  getPoints() {
+    return [...this.points];
+  }
+
+  setPoints(pts) {
+    this.points = Array.isArray(pts) ? [...pts] : [];
+  }
+
   getCurrentPosition() {
     return new Promise((resolve, reject) => {
       if (!GPSTracker.isAvailable()) {
@@ -75,65 +82,49 @@ export class GPSTracker {
         return;
       }
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const p = {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy: pos.coords.accuracy,
-            timestamp: pos.timestamp || Date.now(),
-          };
-          resolve(p);
-        },
+        (pos) => resolve(this._toPoint(pos)),
         reject,
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
       );
     });
   }
 
-  _handlePosition(pos) {
-    const point = {
+  _toPoint(pos) {
+    return {
       lat: pos.coords.latitude,
       lng: pos.coords.longitude,
       accuracy: pos.coords.accuracy,
-      timestamp: pos.timestamp || Date.now(),
       altitude: pos.coords.altitude,
+      heading: pos.coords.heading,
       speed: pos.coords.speed,
+      timestamp: pos.timestamp || Date.now(),
     };
+  }
 
+  _handle(pos) {
+    const point = this._toPoint(pos);
+    this.lastPosition = point;
     this.lastAccuracy = point.accuracy;
-    if (this.onAccuracy) this.onAccuracy(point.accuracy);
+    this._emit('raw', point);
+    this._emit('accuracy', point.accuracy);
 
     const last = this.points.length ? this.points[this.points.length - 1] : null;
     const decision = shouldAcceptPoint(point, last);
-
     if (decision.accept) {
       this.points.push(point);
-      if (this.onPoint) this.onPoint(point, this.points);
+      this._emit('point', point, this.points);
     }
-    // Still report accuracy even if point filtered
   }
 
   _handleError(err) {
     let message = 'Location error';
-    switch (err.code) {
-      case err.PERMISSION_DENIED:
-        message = 'Location permission denied. Please allow location access and try again.';
-        break;
-      case err.POSITION_UNAVAILABLE:
-        message = 'Location unavailable. Check that GPS is enabled.';
-        break;
-      case err.TIMEOUT:
-        message = 'Location request timed out. Move to an open area and try again.';
-        break;
+    if (err.code === err.PERMISSION_DENIED) {
+      message = 'Location permission denied. Allow location access and try again.';
+    } else if (err.code === err.POSITION_UNAVAILABLE) {
+      message = 'Location unavailable. Check that GPS is enabled.';
+    } else if (err.code === err.TIMEOUT) {
+      message = 'Location request timed out. Move to an open area.';
     }
-    if (this.onError) this.onError(new Error(message));
-  }
-
-  getPoints() {
-    return [...this.points];
-  }
-
-  clearPoints() {
-    this.points = [];
+    this._emit('error', new Error(message));
   }
 }

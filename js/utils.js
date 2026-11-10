@@ -1,61 +1,34 @@
 /**
- * PathBack utility functions
- * Pure functions — easy to unit test.
+ * TrailTrace — pure geometry & helper utilities
  */
 
-/**
- * Haversine distance between two lat/lng points in metres.
- * @param {number} lat1
- * @param {number} lon1
- * @param {number} lat2
- * @param {number} lon2
- * @returns {number} distance in metres
- */
+const R = 6371000; // Earth radius metres
+
 export function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Earth radius in metres
   const toRad = (d) => (d * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/**
- * Total path distance from an array of {lat, lng} points in metres.
- * @param {Array<{lat: number, lng: number}>} points
- * @returns {number}
- */
 export function pathDistance(points) {
   if (!points || points.length < 2) return 0;
   let total = 0;
   for (let i = 1; i < points.length; i++) {
-    total += haversine(
-      points[i - 1].lat,
-      points[i - 1].lng,
-      points[i].lat,
-      points[i].lng
-    );
+    total += haversine(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
   }
   return total;
 }
 
-/**
- * Format metres as km with 2 decimal places.
- * @param {number} metres
- * @returns {string}
- */
 export function formatDistance(metres) {
-  return (metres / 1000).toFixed(2);
+  if (!Number.isFinite(metres) || metres < 0) return '0.00';
+  if (metres < 1000) return Math.round(metres) + ' m';
+  return (metres / 1000).toFixed(2) + ' km';
 }
 
-/**
- * Format milliseconds as MM:SS or HH:MM:SS.
- * @param {number} ms
- * @returns {string}
- */
 export function formatDuration(ms) {
   if (ms < 0 || !Number.isFinite(ms)) return '00:00';
   const totalSec = Math.floor(ms / 1000);
@@ -67,28 +40,14 @@ export function formatDuration(ms) {
   return `${pad(m)}:${pad(s)}`;
 }
 
-/**
- * Format a timestamp for display.
- * @param {number} ts
- * @returns {string}
- */
 export function formatTimestamp(ts) {
   try {
-    return new Date(ts).toLocaleString(undefined, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
+    return new Date(ts).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   } catch {
     return '—';
   }
 }
 
-/**
- * Validate a GPS coordinate pair.
- * @param {number} lat
- * @param {number} lng
- * @returns {boolean}
- */
 export function isValidCoordinate(lat, lng) {
   return (
     typeof lat === 'number' &&
@@ -103,29 +62,16 @@ export function isValidCoordinate(lat, lng) {
 }
 
 /**
- * Should we accept a new GPS point?
- * Filters duplicates and extreme jumps while allowing legitimate movement.
- *
- * Rules:
- * - Must be valid coordinates
- * - Must be at least MIN_DISTANCE_M from last point (avoids stationary noise)
- * - Must not jump more than MAX_JUMP_M from last point (filters GPS glitches)
- * - Accuracy must be reasonable when available
- *
- * @param {{lat: number, lng: number, accuracy?: number, timestamp?: number}} newPoint
- * @param {{lat: number, lng: number, accuracy?: number, timestamp?: number}|null} lastPoint
- * @param {object} [opts]
- * @returns {{accept: boolean, reason?: string}}
+ * GPS point acceptance filter.
  */
 export function shouldAcceptPoint(newPoint, lastPoint, opts = {}) {
-  const MIN_DISTANCE_M = opts.minDistance ?? 3; // metres
-  const MAX_JUMP_M = opts.maxJump ?? 200; // metres — large but filters satellite jumps
-  const MAX_ACCURACY_M = opts.maxAccuracy ?? 100;
+  const MIN_DISTANCE_M = opts.minDistance ?? 3;
+  const MAX_JUMP_M = opts.maxJump ?? 250;
+  const MAX_ACCURACY_M = opts.maxAccuracy ?? 120;
 
   if (!isValidCoordinate(newPoint.lat, newPoint.lng)) {
     return { accept: false, reason: 'invalid_coords' };
   }
-
   if (
     newPoint.accuracy != null &&
     Number.isFinite(newPoint.accuracy) &&
@@ -133,100 +79,163 @@ export function shouldAcceptPoint(newPoint, lastPoint, opts = {}) {
   ) {
     return { accept: false, reason: 'poor_accuracy' };
   }
-
-  if (!lastPoint) {
-    return { accept: true };
-  }
+  if (!lastPoint) return { accept: true };
 
   const dist = haversine(lastPoint.lat, lastPoint.lng, newPoint.lat, newPoint.lng);
-
-  if (dist < MIN_DISTANCE_M) {
-    return { accept: false, reason: 'too_close' };
-  }
-
-  if (dist > MAX_JUMP_M) {
-    return { accept: false, reason: 'jump_too_large' };
-  }
-
+  if (dist < MIN_DISTANCE_M) return { accept: false, reason: 'too_close' };
+  if (dist > MAX_JUMP_M) return { accept: false, reason: 'jump_too_large' };
   return { accept: true };
 }
 
-/**
- * Reverse a route (for Retrace My Steps).
- * Returns a new array; does not mutate input.
- * @param {Array} points
- * @returns {Array}
- */
 export function reverseRoute(points) {
   if (!Array.isArray(points)) return [];
   return [...points].reverse();
 }
 
-/**
- * Minimum distance from a point to any segment of a polyline (metres).
- * Used for deviation detection.
- * @param {{lat: number, lng: number}} point
- * @param {Array<{lat: number, lng: number}>} route
- * @returns {number}
- */
-export function distanceToRoute(point, route) {
-  if (!route || route.length === 0) return Infinity;
-  if (route.length === 1) {
-    return haversine(point.lat, point.lng, route[0].lat, route[0].lng);
-  }
-
-  let minDist = Infinity;
-  for (let i = 0; i < route.length - 1; i++) {
-    const d = distanceToSegment(point, route[i], route[i + 1]);
-    if (d < minDist) minDist = d;
-  }
-  return minDist;
+export function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
 /**
- * Approximate distance from point to a line segment defined by two lat/lng points.
- * Uses local equirectangular projection for speed (good enough for short segments).
- * @param {{lat: number, lng: number}} p
- * @param {{lat: number, lng: number}} a
- * @param {{lat: number, lng: number}} b
- * @returns {number} metres
+ * Project lat/lng to local metres relative to origin (equirectangular).
  */
-function distanceToSegment(p, a, b) {
-  // Convert to local metres using equirectangular approx around point a
-  const R = 6371000;
+function toLocal(p, origin) {
   const toRad = (d) => (d * Math.PI) / 180;
-  const cosLat = Math.cos(toRad(a.lat));
+  const cos = Math.cos(toRad(origin.lat));
+  return {
+    x: (p.lng - origin.lng) * toRad(1) * R * cos,
+    y: (p.lat - origin.lat) * toRad(1) * R,
+  };
+}
 
-  const ax = 0;
-  const ay = 0;
-  const bx = (b.lng - a.lng) * toRad(1) * R * cosLat;
-  const by = (b.lat - a.lat) * toRad(1) * R;
-  const px = (p.lng - a.lng) * toRad(1) * R * cosLat;
-  const py = (p.lat - a.lat) * toRad(1) * R;
-
-  const dx = bx - ax;
-  const dy = by - ay;
+/**
+ * Distance from point to line segment (metres).
+ * Returns { distance, t, closest } where t is 0..1 along segment.
+ */
+export function distanceToSegment(point, a, b) {
+  const origin = a;
+  const P = toLocal(point, origin);
+  const A = { x: 0, y: 0 };
+  const B = toLocal(b, origin);
+  const dx = B.x - A.x;
+  const dy = B.y - A.y;
   const lenSq = dx * dx + dy * dy;
 
-  if (lenSq === 0) {
-    return Math.sqrt(px * px + py * py);
+  let t = 0;
+  if (lenSq > 0) {
+    t = ((P.x - A.x) * dx + (P.y - A.y) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
   }
 
-  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
+  const cx = A.x + t * dx;
+  const cy = A.y + t * dy;
+  const dist = Math.sqrt((P.x - cx) ** 2 + (P.y - cy) ** 2);
 
-  const projX = ax + t * dx;
-  const projY = ay + t * dy;
-  return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+  // Reconstruct lat/lng of closest point
+  const toRad = (d) => (d * Math.PI) / 180;
+  const cos = Math.cos(toRad(origin.lat));
+  const closest = {
+    lat: origin.lat + (cy / R) * (180 / Math.PI),
+    lng: origin.lng + (cx / (R * cos)) * (180 / Math.PI),
+  };
+
+  return { distance: dist, t, closest };
 }
 
 /**
- * Generate a simple unique id.
- * @returns {string}
+ * Nearest point on a polyline to a given position.
+ * Uses nearest-segment (not just nearest vertex).
+ * Returns { distance, closest, segmentIndex, t }
  */
-export function generateId() {
-  return (
-    Date.now().toString(36) +
-    Math.random().toString(36).slice(2, 9)
-  );
+export function nearestOnRoute(point, route) {
+  if (!route || route.length === 0) {
+    return { distance: Infinity, closest: null, segmentIndex: -1, t: 0 };
+  }
+  if (route.length === 1) {
+    const d = haversine(point.lat, point.lng, route[0].lat, route[0].lng);
+    return { distance: d, closest: { ...route[0] }, segmentIndex: 0, t: 0 };
+  }
+
+  let best = { distance: Infinity, closest: null, segmentIndex: -1, t: 0 };
+  for (let i = 0; i < route.length - 1; i++) {
+    const r = distanceToSegment(point, route[i], route[i + 1]);
+    if (r.distance < best.distance) {
+      best = {
+        distance: r.distance,
+        closest: r.closest,
+        segmentIndex: i,
+        t: r.t,
+      };
+    }
+  }
+  return best;
+}
+
+/**
+ * Remaining distance along the route from the nearest point onward (towards end).
+ * Assumes route is ordered in the direction of travel (e.g. reversed for retrace).
+ */
+export function remainingRouteDistance(point, route) {
+  if (!route || route.length < 2) return 0;
+  const near = nearestOnRoute(point, route);
+  if (near.segmentIndex < 0) return pathDistance(route);
+
+  let remaining = 0;
+  // Distance from closest point to end of current segment
+  const segEnd = route[near.segmentIndex + 1];
+  remaining += haversine(near.closest.lat, near.closest.lng, segEnd.lat, segEnd.lng);
+
+  // Rest of the route
+  for (let i = near.segmentIndex + 1; i < route.length - 1; i++) {
+    remaining += haversine(route[i].lat, route[i].lng, route[i + 1].lat, route[i + 1].lng);
+  }
+  return remaining;
+}
+
+/**
+ * Progress along route 0..1 based on distance travelled from start of route.
+ */
+export function routeProgress(point, route) {
+  const total = pathDistance(route);
+  if (total <= 0) return 0;
+  const remaining = remainingRouteDistance(point, route);
+  return Math.max(0, Math.min(1, 1 - remaining / total));
+}
+
+/**
+ * Bearing from point A to B in degrees (0 = north, 90 = east).
+ */
+export function bearing(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/**
+ * Smooth heading (circular mean-ish) to reduce jitter.
+ * @param {number} prev previous heading degrees
+ * @param {number} next new heading degrees
+ * @param {number} alpha 0..1 smoothing factor (higher = more responsive)
+ */
+export function smoothHeading(prev, next, alpha = 0.25) {
+  if (prev == null || !Number.isFinite(prev)) return next;
+  let diff = ((next - prev + 540) % 360) - 180;
+  return (prev + alpha * diff + 360) % 360;
+}
+
+/**
+ * Destination reached? Within radius of target, with simple consecutive-count hysteresis.
+ */
+export function isNearDestination(point, target, radiusM = 25) {
+  if (!point || !target) return false;
+  return haversine(point.lat, point.lng, target.lat, target.lng) <= radiusM;
+}
+
+export function distanceToRoute(point, route) {
+  return nearestOnRoute(point, route).distance;
 }

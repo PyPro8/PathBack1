@@ -1,11 +1,13 @@
 /**
- * PathBack — IndexedDB storage for journeys.
- * No accounts, fully local, survives page refresh.
+ * TrailTrace — IndexedDB persistence
+ * Journeys, active session recovery, waypoints
  */
 
-const DB_NAME = 'PathBackDB';
-const DB_VERSION = 1;
-const STORE = 'journeys';
+const DB_NAME = 'TrailTraceDB';
+const DB_VERSION = 2;
+const STORE_JOURNEYS = 'journeys';
+const STORE_SESSION = 'session';
+const STORE_WAYPOINTS = 'waypoints';
 
 let dbPromise = null;
 
@@ -15,97 +17,141 @@ function openDB() {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onerror = () => reject(request.error);
-
     request.onsuccess = () => resolve(request.result);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const store = db.createObjectStore(STORE, { keyPath: 'id' });
+
+      if (!db.objectStoreNames.contains(STORE_JOURNEYS)) {
+        const store = db.createObjectStore(STORE_JOURNEYS, { keyPath: 'id' });
         store.createIndex('startedAt', 'startedAt', { unique: false });
         store.createIndex('name', 'name', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(STORE_SESSION)) {
+        db.createObjectStore(STORE_SESSION, { keyPath: 'key' });
+      }
+
+      if (!db.objectStoreNames.contains(STORE_WAYPOINTS)) {
+        const wp = db.createObjectStore(STORE_WAYPOINTS, { keyPath: 'id' });
+        wp.createIndex('journeyId', 'journeyId', { unique: false });
       }
     };
   });
   return dbPromise;
 }
 
-/**
- * Save a journey object.
- * @param {object} journey
- * @returns {Promise<object>}
- */
 export async function saveJourney(journey) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    const request = store.put(journey);
-    request.onsuccess = () => resolve(journey);
-    request.onerror = () => reject(request.error);
+    const tx = db.transaction(STORE_JOURNEYS, 'readwrite');
+    tx.objectStore(STORE_JOURNEYS).put(journey);
+    tx.oncomplete = () => resolve(journey);
+    tx.onerror = () => reject(tx.error);
   });
 }
 
-/**
- * Get all journeys, newest first.
- * @returns {Promise<object[]>}
- */
 export async function getAllJourneys() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const store = tx.objectStore(STORE);
-    const request = store.getAll();
-    request.onsuccess = () => {
-      const list = request.result || [];
+    const tx = db.transaction(STORE_JOURNEYS, 'readonly');
+    const req = tx.objectStore(STORE_JOURNEYS).getAll();
+    req.onsuccess = () => {
+      const list = req.result || [];
       list.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
       resolve(list);
     };
-    request.onerror = () => reject(request.error);
+    req.onerror = () => reject(req.error);
   });
 }
 
-/**
- * Get a single journey by id.
- * @param {string} id
- * @returns {Promise<object|null>}
- */
 export async function getJourney(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const store = tx.objectStore(STORE);
-    const request = store.get(id);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
+    const req = db.transaction(STORE_JOURNEYS, 'readonly').objectStore(STORE_JOURNEYS).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
   });
 }
 
-/**
- * Delete a journey by id.
- * @param {string} id
- * @returns {Promise<void>}
- */
 export async function deleteJourney(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    const request = store.delete(id);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    const tx = db.transaction([STORE_JOURNEYS, STORE_WAYPOINTS], 'readwrite');
+    tx.objectStore(STORE_JOURNEYS).delete(id);
+    const wpStore = tx.objectStore(STORE_WAYPOINTS);
+    const idx = wpStore.index('journeyId');
+    const req = idx.getAllKeys(IDBKeyRange.only(id));
+    req.onsuccess = () => {
+      (req.result || []).forEach((key) => wpStore.delete(key));
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
-/**
- * Rename a journey.
- * @param {string} id
- * @param {string} newName
- * @returns {Promise<object|null>}
- */
 export async function renameJourney(id, newName) {
   const journey = await getJourney(id);
   if (!journey) return null;
   journey.name = (newName || '').trim() || 'Untitled Journey';
   return saveJourney(journey);
+}
+
+export async function saveActiveSession(session) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SESSION, 'readwrite');
+    tx.objectStore(STORE_SESSION).put({ key: 'active', ...session, updatedAt: Date.now() });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getActiveSession() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE_SESSION, 'readonly').objectStore(STORE_SESSION).get('active');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function clearActiveSession() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SESSION, 'readwrite');
+    tx.objectStore(STORE_SESSION).delete('active');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function saveWaypoint(waypoint) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WAYPOINTS, 'readwrite');
+    tx.objectStore(STORE_WAYPOINTS).put(waypoint);
+    tx.oncomplete = () => resolve(waypoint);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getWaypointsForJourney(journeyId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const idx = db.transaction(STORE_WAYPOINTS, 'readonly').objectStore(STORE_WAYPOINTS).index('journeyId');
+    const req = idx.getAll(journeyId);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteWaypoint(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WAYPOINTS, 'readwrite');
+    tx.objectStore(STORE_WAYPOINTS).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
