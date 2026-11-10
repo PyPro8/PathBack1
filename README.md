@@ -1,166 +1,121 @@
-# PathBack
+# TrailTrace
 
-**Go explore. We'll remember the way.**
+**Every journey remembered. Every way found.**
 
-PathBack is a mobile-first GPS route recording and retracing web application. It records your movements using the device GPS, stores journeys locally, and lets you reverse a saved route so you can find your way back.
+TrailTrace is a GPS navigation and journey-recording web application. Record routes as you explore, save them locally, and later retrace your steps with live deviation guidance.
 
-Version 1.0 — intentional product foundation, not a throwaway demo.
+Upgraded from PathBack v1.0 into a fuller navigation experience.
 
 ---
 
 ## Features
 
-- **GPS Tracking** — Browser Geolocation API with high-accuracy mode, sensible filtering of duplicates and GPS jumps.
-- **Live statistics** — Distance (Haversine), duration, point count, current accuracy.
-- **Schematic route visualization** — Custom HTML Canvas plot of the path (not a real map). Start (S), Destination (D), and current position are marked.
-- **Save journeys** — Name, coordinates, timestamps, distance, and duration stored in IndexedDB. No account required.
-- **Journey history** — List, view, rename, and delete saved journeys. Data survives page refresh.
-- **Retrace My Steps** — Reverse the recorded coordinates and display the return path. Visually distinct dashed blue line.
-- **Deviation warning** — While retracing, warns if you drift too far from the recorded trail (accounts for GPS accuracy).
-- **Installable (PWA)** — Add to Home Screen on Android & iOS. App shell works offline; journey data stays local in IndexedDB.
-- **Mobile-first UI** — Clean light theme, deep navy text, blue accents, optimized for phone browsers.
+- **GPS journey recording** — high-accuracy Geolocation with filtering for duplicates, jumps, and poor accuracy
+- **Real map** — Leaflet + OpenStreetMap tiles (roads, paths, surroundings)
+- **Schematic map** — offline-capable canvas route view with zoom, pan, and rotation
+- **Heading-up navigation** — map orients to direction of travel; north-up available
+- **Retrace My Steps** — reverse a saved route and follow it back
+- **Deviation connector** — line from your position to the nearest point on the return route; ON/OFF/RECONNECTING status
+- **Compass** — device orientation + GPS course
+- **Remaining distance** — along the recorded route (not straight-line)
+- **Waypoints** — mark important points during recording
+- **GPX export / import**
+- **Journey recovery** — interrupted recordings can be restored after reload
+- **Screen Wake Lock** — keeps screen on during navigation where supported
+- **Installable PWA** — Add to Home Screen
+- **Local-only storage** — IndexedDB, no account required
 
 ---
 
-## Technology Stack
+## Technology
 
-| Layer        | Choice                          |
-|--------------|---------------------------------|
-| Markup       | HTML5                           |
-| Styles       | CSS3 (custom properties)        |
-| Logic        | Vanilla ES modules (JavaScript) |
-| Storage      | IndexedDB                       |
-| Visualization| HTML Canvas                     |
-| GPS          | Browser Geolocation API         |
-| Tests        | Node.js (no extra runner)       |
+| Area | Choice |
+|------|--------|
+| UI | HTML, CSS, vanilla JS (ES modules) |
+| Real map | Leaflet 1.9 + OSM tiles |
+| Schematic map | HTML Canvas |
+| Storage | IndexedDB |
+| GPS | Browser Geolocation API |
+| Heading | DeviceOrientation + GPS course |
+| PWA | manifest + service worker |
 
-No frameworks, no external map providers, no backend required for Version 1.
+No backend required for this version.
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
-pathback/
-├── index.html              # App shell
-├── manifest.json           # PWA manifest
-├── sw.js                   # Service worker (offline shell)
-├── icons/                  # App icons (192, 512, Apple)
-├── css/
-│   └── styles.css          # Mobile-first styles
+trailtrace/
+├── index.html
+├── manifest.json
+├── sw.js
+├── css/styles.css
+├── icons/
 ├── js/
-│   ├── app.js              # Main controller
-│   ├── gps.js              # Geolocation wrapper
-│   ├── storage.js          # IndexedDB persistence
-│   ├── visualization.js    # Canvas route plotter
-│   └── utils.js            # Haversine, filtering, etc.
-├── tests/
-│   └── utils.test.js       # Automated unit tests
+│   ├── app.js           # Controller
+│   ├── gps.js           # GPS service
+│   ├── storage.js       # IndexedDB
+│   ├── utils.js         # Geometry
+│   ├── schematic.js     # Canvas map
+│   ├── leaflet-map.js   # Real map
+│   ├── compass.js
+│   └── gpx.js
+├── tests/utils.test.js
 ├── README.md
 └── BUILD_BOOK.md
 ```
 
 ---
 
-## Installation & Running Locally
-
-### Requirements
-
-- A modern browser (Chrome, Firefox, Safari, Edge — recent versions).
-- For GPS: a device with location services, or a browser that can mock geolocation.
-- **HTTPS or localhost** — Geolocation is blocked on plain HTTP origins (except localhost).
-
-### Quick start
-
-1. Clone or extract the project.
-2. Serve the folder over HTTP (required for modules + geolocation):
+## Run locally
 
 ```bash
-# Python 3
-cd pathback
+cd trailtrace
 python -m http.server 8080
-
-# Or Node
-npx serve .
+# open http://localhost:8080
 ```
 
-3. Open `http://localhost:8080` on your phone or desktop.
+**Requirements:** modern browser, HTTPS or localhost for Geolocation, location permission.
 
-### Testing GPS on a phone
+### Install as app (PWA)
 
-1. Open the app on your Android/iOS browser over HTTPS or a local network address served via HTTPS if possible (or use localhost with USB debugging / port forwarding).
-2. Allow location permission when prompted.
-3. Keep the screen on and the tab in the foreground while recording.
-4. Walk a short loop, stop & save, then open the journey and press **Retrace My Steps**.
+Serve over HTTPS (e.g. Netlify Drop), then:
 
-Desktop browsers can use the developer tools “Sensors” / “Geolocation” override to simulate movement.
-
-### Install as a downloadable / home-screen app (PWA)
-
-Once the app is served over **HTTPS** (or localhost):
-
-**Android (Chrome)**  
-- Open the site → menu (⋮) → **Install app** or **Add to Home screen**  
-- Or look for the install banner
-
-**iPhone / iPad (Safari)**  
-- Tap the Share button → **Add to Home Screen**
-
-The app then opens in standalone mode (no browser chrome) with its own icon. The service worker caches the app shell so it opens even offline; your recorded journeys remain in IndexedDB on the device.
+- **Android Chrome:** menu → Install app / Add to Home screen  
+- **iOS Safari:** Share → Add to Home Screen  
 
 ---
 
-## Running Tests
+## Tests
 
 ```bash
-cd pathback
 node tests/utils.test.js
 ```
 
-Expected output ends with `Passed: N` and `Failed: 0`.
+Covers Haversine, filtering, nearest-segment, remaining distance, bearing, GPX export, etc.
 
-Tests cover:
-
-- Haversine distance
-- Path distance aggregation
-- Coordinate validation
-- GPS point filtering (duplicates, jumps, accuracy)
-- Route reversal
-- Distance-to-route (deviation helper)
-- Duration / distance formatting
-- ID generation
-
-**Manual testing** (required for full confidence):
-
-- Real GPS recording on a mobile device
-- Permission denied / timeout behaviour
-- IndexedDB persistence across refresh
-- Retrace + deviation warning while walking off path
+**Manual testing** on a real Android device is required for GPS, compass, maps, and retrace.
 
 ---
 
-## Known Limitations (Version 1)
+## Known limitations
 
-- **No real map tiles** — Visualization is schematic only.
-- **No background tracking** — Mobile browsers suspend Geolocation when the tab is backgrounded or the screen locks. The app states this clearly.
-- **No turn-by-turn or voice guidance**.
-- **No accounts / cloud sync** — Data stays on the device.
-- **Deviation detection is basic** — Distance-to-polyline with an accuracy buffer; not a full navigation engine.
-- **Reversing coordinates is not guaranteed safe navigation** — Obstacles, one-way paths, and terrain are not considered.
-
----
-
-## Future Roadmap
-
-- User accounts and cloud synchronization
-- Offline map tiles (optional)
-- Native Android / iOS apps with reliable background tracking
-- Voice prompts and basic navigation cues
-- Journey export (GPX / GeoJSON)
-- Subscription plans for premium features
+- Browser GPS is paused when the tab is backgrounded or the screen locks; this is not a native background tracker.
+- Real map tiles require internet; schematic mode works offline.
+- OSM tiles: fair-use only; tile URL is configurable for production providers.
+- Heading-up fully rotates the schematic map; real map follows position (Leaflet north-up base).
+- Deviation connector is a straight geographic link, not a guaranteed walkable path.
+- No turn-by-turn voice navigation in this version.
 
 ---
 
-## License
+## Map attribution
 
-Proprietary — intended for commercialization. All rights reserved for the PathBack product.
+Real map tiles © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
+
+---
+
+## Future direction
+
+Native Android app, offline tile packs, cloud sync, accounts, team tracking (with consent), richer navigation cues.

@@ -4,118 +4,155 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#0f172a">
-  <meta name="description" content="PathBack — Go explore. We'll remember the way.">
+  <meta name="description" content="TrailTrace — Every journey remembered. Every way found.">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="PathBack">
-  <title>PathBack — Remember the Way</title>
+  <meta name="apple-mobile-web-app-title" content="TrailTrace">
+  <title>TrailTrace — Every journey remembered</title>
 
-  <!-- PWA -->
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
 
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="app">
-    <!-- Header -->
-    <header class="header">
-      <div class="logo">
-        <span class="logo-mark">PB</span>
-        <span class="logo-text">PathBack</span>
+    <!-- Top bar -->
+    <header class="topbar">
+      <button class="btn-icon" id="btn-menu" aria-label="Menu">☰</button>
+      <div class="brand">
+        <span class="brand-mark">TT</span>
+        <span class="brand-name">TrailTrace</span>
       </div>
-      <p class="tagline">Go explore. We'll remember the way.</p>
+      <div class="topbar-status">
+        <span class="conn-badge" id="conn-badge">—</span>
+        <span class="status-pill" id="status-pill">Idle</span>
+      </div>
     </header>
 
-    <!-- Main content -->
-    <main class="main">
-      <!-- Live tracking card -->
-      <section class="card tracking-card" id="tracking-section">
-        <div class="card-header">
-          <h2 id="status-title">Ready to track</h2>
-          <span class="status-badge" id="status-badge">Idle</span>
-        </div>
+    <!-- Map area (dominant) -->
+    <div class="map-stage" id="map-stage">
+      <div id="leaflet-container" class="map-layer hidden"></div>
+      <canvas id="schematic-canvas" class="map-layer" aria-label="Schematic route map"></canvas>
 
-        <!-- Journey name input -->
-        <div class="form-group" id="name-group">
-          <label for="journey-name">Journey name</label>
-          <input type="text" id="journey-name" placeholder="e.g. Hike to the ridge" maxlength="80" autocomplete="off">
-        </div>
+      <!-- Floating map controls -->
+      <div class="map-fab-col">
+        <button class="fab" id="btn-recenter" title="Recenter">⌖</button>
+        <button class="fab" id="btn-heading-up" title="Heading up">⬆</button>
+        <button class="fab" id="btn-north-up" title="North up">N</button>
+        <button class="fab" id="btn-map-mode" title="Switch map">🗺</button>
+      </div>
 
-        <!-- Canvas visualization -->
-        <div class="viz-container">
-          <canvas id="route-canvas" width="400" height="320" aria-label="Schematic route visualization"></canvas>
-          <div class="viz-label">Schematic route (not a real map)</div>
-        </div>
+      <!-- Deviation / route status -->
+      <div class="route-status hidden" id="route-status">
+        <span id="route-status-text">ON ROUTE</span>
+        <span id="route-status-dist"></span>
+      </div>
 
-        <!-- Live stats -->
-        <div class="stats-grid" id="live-stats">
-          <div class="stat">
-            <span class="stat-value" id="stat-distance">0.00</span>
-            <span class="stat-label">km</span>
+      <!-- Map mode label -->
+      <div class="map-mode-label" id="map-mode-label">Schematic</div>
+    </div>
+
+    <!-- Bottom info strip -->
+    <div class="info-strip" id="info-strip">
+      <div class="info-item">
+        <span class="info-val" id="stat-distance">0 m</span>
+        <span class="info-lbl">distance</span>
+      </div>
+      <div class="info-item">
+        <span class="info-val" id="stat-remaining">—</span>
+        <span class="info-lbl">remaining</span>
+      </div>
+      <div class="info-item">
+        <span class="info-val" id="stat-duration">00:00</span>
+        <span class="info-lbl">duration</span>
+      </div>
+      <div class="info-item">
+        <span class="info-val" id="stat-accuracy">—</span>
+        <span class="info-lbl">accuracy</span>
+      </div>
+    </div>
+
+    <!-- Primary action bar -->
+    <div class="action-bar" id="action-bar">
+      <input type="text" id="journey-name" class="name-input" placeholder="Journey name" maxlength="80">
+      <button class="btn btn-primary" id="btn-start">Start</button>
+      <button class="btn btn-danger hidden" id="btn-stop">Stop &amp; Save</button>
+      <button class="btn btn-primary hidden" id="btn-start-retrace">Start Retrace</button>
+      <button class="btn btn-secondary hidden" id="btn-exit-retrace">Exit</button>
+    </div>
+
+    <!-- Sidebar / drawer -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h2>TrailTrace</h2>
+        <button class="btn-icon" id="btn-close-sidebar" aria-label="Close">×</button>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Navigation</h3>
+        <div class="compass-wrap">
+          <div class="compass" id="compass">
+            <div class="compass-rose" id="compass-rose">
+              <span class="c-n">N</span>
+              <span class="c-e">E</span>
+              <span class="c-s">S</span>
+              <span class="c-w">W</span>
+              <div class="compass-needle" id="compass-needle"></div>
+            </div>
           </div>
-          <div class="stat">
-            <span class="stat-value" id="stat-duration">00:00</span>
-            <span class="stat-label">duration</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value" id="stat-points">0</span>
-            <span class="stat-label">points</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value" id="stat-accuracy">—</span>
-            <span class="stat-label">accuracy (m)</span>
+          <div class="compass-meta">
+            <div><strong id="heading-value">—°</strong></div>
+            <div class="muted" id="heading-source">No heading</div>
           </div>
         </div>
+      </div>
 
-        <!-- Controls -->
-        <div class="controls" id="tracking-controls">
-          <button class="btn btn-primary" id="btn-start">Start Tracking</button>
-          <button class="btn btn-danger hidden" id="btn-stop">Stop &amp; Save</button>
+      <div class="sidebar-section">
+        <h3>Map</h3>
+        <div class="btn-row">
+          <button class="btn btn-sm" id="btn-mode-real">Real map</button>
+          <button class="btn btn-sm btn-active" id="btn-mode-schematic">Schematic</button>
         </div>
+      </div>
 
-        <!-- Retrace controls (shown when a journey is loaded for retrace) -->
-        <div class="controls hidden" id="retrace-controls">
-          <button class="btn btn-primary" id="btn-start-retrace">Start Retracing</button>
-          <button class="btn btn-secondary" id="btn-exit-retrace">Exit Retrace</button>
+      <div class="sidebar-section">
+        <h3>Journey</h3>
+        <div class="detail-list">
+          <div class="detail-row"><span>Points</span><strong id="side-points">0</strong></div>
+          <div class="detail-row"><span>Coords</span><strong id="side-coords">—</strong></div>
+          <div class="detail-row"><span>Status</span><strong id="side-status">Idle</strong></div>
         </div>
+        <button class="btn btn-sm btn-secondary" id="btn-add-waypoint" disabled>+ Waypoint</button>
+      </div>
 
-        <!-- Deviation warning -->
-        <div class="warning hidden" id="deviation-warning" role="alert">
-          <strong>Off path</strong> — You appear to have left the recorded route.
-        </div>
-
-        <!-- Info notice -->
-        <p class="notice" id="geo-notice">
-          Location tracking requires permission and works best with the screen on and the tab in the foreground. Background tracking is not reliable in browsers.
-        </p>
-      </section>
-
-      <!-- Saved journeys -->
-      <section class="card" id="history-section">
-        <div class="card-header">
-          <h2>Saved Journeys</h2>
-          <span class="count-badge" id="journey-count">0</span>
-        </div>
+      <div class="sidebar-section">
+        <h3>Saved Journeys <span class="count" id="journey-count">0</span></h3>
         <div id="journey-list" class="journey-list">
-          <p class="empty-state">No journeys yet. Start tracking to create your first path.</p>
+          <p class="empty-state">No journeys yet.</p>
         </div>
-      </section>
-    </main>
+        <label class="import-label">
+          Import GPX
+          <input type="file" id="gpx-import" accept=".gpx,application/gpx+xml" hidden>
+        </label>
+      </div>
 
-    <!-- Journey detail modal -->
-    <div class="modal hidden" id="journey-modal" role="dialog" aria-modal="true">
+      <p class="sidebar-tagline">Every journey remembered. Every way found.</p>
+    </aside>
+    <div class="sidebar-backdrop hidden" id="sidebar-backdrop"></div>
+
+    <!-- Journey modal -->
+    <div class="modal hidden" id="journey-modal">
       <div class="modal-backdrop" id="modal-backdrop"></div>
       <div class="modal-content">
         <div class="modal-header">
           <h3 id="modal-title">Journey</h3>
-          <button class="btn-icon" id="modal-close" aria-label="Close">&times;</button>
+          <button class="btn-icon" id="modal-close">×</button>
         </div>
         <div class="modal-body">
           <div class="detail-row"><span>Distance</span><strong id="modal-distance">—</strong></div>
@@ -127,24 +164,22 @@
         <div class="modal-actions">
           <button class="btn btn-primary" id="btn-retrace">Retrace My Steps</button>
           <button class="btn btn-secondary" id="btn-view">View Route</button>
+          <button class="btn btn-secondary" id="btn-export-gpx">Export GPX</button>
           <button class="btn btn-ghost" id="btn-rename">Rename</button>
           <button class="btn btn-danger-outline" id="btn-delete">Delete</button>
         </div>
       </div>
     </div>
 
-    <!-- Toast -->
     <div class="toast hidden" id="toast" role="status"></div>
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script type="module" src="js/app.js"></script>
   <script>
-    // Register service worker for installable / offline support
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .then((reg) => console.log('PathBack SW registered', reg.scope))
-          .catch((err) => console.warn('SW registration failed', err));
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
       });
     }
   </script>
